@@ -1,5 +1,5 @@
 import streamlit as st
-from langgraph_chatbot_backend import chatbot
+from chatbot import chatbot
 from langchain_core.messages import HumanMessage
 
 # st.session_state -> dict
