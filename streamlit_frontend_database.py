@@ -4,6 +4,13 @@ from langchain_core.messages import HumanMessage
 import uuid
 import traceback
 
+st.markdown("""
+    <style>
+    [data-testid="stSidebarContent"] .stButton button {
+        height: 50px;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
 # ******************************** Utility Functions *************************************
 
@@ -59,7 +66,8 @@ st.sidebar.header("Chat History")
 
 # displaying all the chat threads in the sidebar
 for thread_id, label in reversed(st.session_state['chat_threads'].items()):
-    if st.sidebar.button(label, key=str(thread_id)):
+    col1,col2 = st.sidebar.columns([4,1])
+    if col1.button(label, key=str(thread_id), use_container_width=True):
 
         st.session_state['thread_id'] = thread_id
         # loading messages for this thread
@@ -74,6 +82,14 @@ for thread_id, label in reversed(st.session_state['chat_threads'].items()):
             temp_messages.append({'role':role, 'content': msg.content})
         
         st.session_state['message_history'] = temp_messages
+    
+    if col2.button("🗑", key=f"del_{thread_id}", use_container_width=True):
+        del st.session_state['chat_threads'][thread_id]
+        if st.session_state['thread_id'] == thread_id:
+            # where user deletes the current thread
+            reset_chat()
+        else:
+            st.rerun()
 
 # ************************************ Main UI **************************************
 
