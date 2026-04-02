@@ -1,6 +1,6 @@
 import streamlit as st
 from langgraph_tool_backend import chatbot, retrieve_all_threads, delete_thread
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, AIMessage
 import uuid
 import re
 
@@ -96,8 +96,10 @@ for thread_id, label in reversed(st.session_state['chat_threads'].items()):
         for msg in messages:
             if isinstance(msg, HumanMessage):
                 role = 'user'
-            else:
+            elif isinstance(msg, AIMessage) and msg.content:
                 role = 'assistant'
+            else:
+                continue # skips tool message and empty AI messages (tool call decisions)
             temp_messages.append({'role':role, 'content': msg.content})
         
         st.session_state['message_history'] = temp_messages

@@ -64,7 +64,7 @@ def search(query: str) -> dict:
     """
     try:
         client = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
-        response = client.search(query, max_results=3)
+        response = client.search(query, max_results=3, search_depth="advanced",days=7)
         return {
             "query": query,
             "results": [
