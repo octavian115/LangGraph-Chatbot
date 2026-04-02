@@ -1,5 +1,5 @@
 import streamlit as st
-from langgraph_database_backend import chatbot, retrieve_all_threads
+from langgraph_database_backend import chatbot, retrieve_all_threads, delete_thread
 from langchain_core.messages import HumanMessage
 import uuid
 
@@ -30,10 +30,15 @@ def add_thread(thread_id):
         st.session_state['chat_threads'][thread_id] = str(thread_id)[:8]
 
 def load_conversation(thread_id):
-    state = chatbot.get_state(config={'configurable': {'thread_id': thread_id}})
+    try:
+        state = chatbot.get_state(config={'configurable': {'thread_id': thread_id}})
 
-    # to avoid a key error if the thread is empty
-    return state.values.get('messages',[])
+        # to avoid a key error if the thread is empty
+        return state.values.get('messages',[])
+    except Exception as e:
+        st.error(f"Failed to load conversation: {e}")
+        # returning an empty list so that the app still shows sidebar. with no messgaes
+        return []
 
 # ********************************* Session Setup **************************************
 
@@ -91,7 +96,11 @@ for thread_id, label in reversed(st.session_state['chat_threads'].items()):
         st.session_state['message_history'] = temp_messages
     
     if col2.button("🗑", key=f"del_{thread_id}", use_container_width=True):
-        del st.session_state['chat_threads'][thread_id]
+
+        delete_thread(thread_id) # remove from DB
+
+        del st.session_state['chat_threads'][thread_id] # remove from UI
+        
         if st.session_state['thread_id'] == thread_id:
             # where user deletes the current thread
             reset_chat()
@@ -152,13 +161,17 @@ if user_input:
             "run_name": "chat_turn",
         }
 
-        ai_message = st.write_stream(
-            message_chunk.content for message_chunk, metadata in chatbot.stream(
-                {'messages': [HumanMessage(content=user_input)]},
-                config= CONFIG,
-                stream_mode="messages"
+        try:
+            ai_message = st.write_stream(
+                message_chunk.content for message_chunk, metadata in chatbot.stream(
+                    {'messages': [HumanMessage(content=user_input)]},
+                    config= CONFIG,
+                    stream_mode="messages"
+                )
             )
-        )
+        except Exception as e:
+            ai_message = "Sorry, I encountered an error. Please try again."
+            st.error(f"Error: {e}")
 
     st.session_state['message_history'].append({"role":"assistant", "content": ai_message})
     

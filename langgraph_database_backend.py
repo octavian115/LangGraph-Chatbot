@@ -53,3 +53,8 @@ def retrieve_all_threads():
             all_threads[thread_id] = label
 
     return all_threads
+
+def delete_thread(thread_id):
+    conn.execute("DELETE FROM checkpoints WHERE thread_id = ?", (str(thread_id),))
+    conn.execute("DELETE FROM writes WHERE thread_id = ?", (str(thread_id),))
+    conn.commit()
