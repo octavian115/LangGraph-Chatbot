@@ -2,7 +2,6 @@ import streamlit as st
 from langgraph_database_backend import chatbot, retrieve_all_threads
 from langchain_core.messages import HumanMessage
 import uuid
-import traceback
 
 st.markdown("""
     <style>
@@ -23,6 +22,8 @@ def reset_chat():
     st.session_state['thread_id'] = thread_id
     add_thread(st.session_state['thread_id'])
     st.session_state['message_history'] = []
+    st.session_state['chat_started'] = False
+    st.rerun()
 
 def add_thread(thread_id):
     if thread_id not in st.session_state['chat_threads']:
@@ -55,6 +56,10 @@ except Exception as e:
 # add the current thread to chat_threads
 add_thread(st.session_state['thread_id'])
 
+# checking if user started the chat
+if 'chat_started' not in st.session_state:
+    st.session_state['chat_started'] = False
+
 # ********************************* Sidebar UI **************************************
 
 st.sidebar.title("LangGraph Chatbot")
@@ -70,6 +75,8 @@ for thread_id, label in reversed(st.session_state['chat_threads'].items()):
     if col1.button(label, key=str(thread_id), use_container_width=True):
 
         st.session_state['thread_id'] = thread_id
+        st.session_state['chat_started'] = True  # it has messages
+
         # loading messages for this thread
         messages = load_conversation(thread_id)
 
@@ -93,15 +100,33 @@ for thread_id, label in reversed(st.session_state['chat_threads'].items()):
 
 # ************************************ Main UI **************************************
 
-# loading the conversation history
-for message in st.session_state['message_history']:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+# welcome screen when no messages and when users starts the chat
+if not st.session_state['chat_started'] and len(st.session_state['message_history']) == 0:
+
+    st.markdown("""
+            <div style="display: flex; flex-direction: column; align-items: center; 
+                    justify-content: center; padding: 80px 20px 40px;">
+            <h1 style="font-size: 26px; font-weight: 500; margin-bottom: 8px;">
+                LangGraph Chatbot
+            </h1>
+            <p style="color: gray; font-size: 15px;">
+                Your conversations are saved and can be resumed anytime.
+            </p>
+        </div>
+    """, unsafe_allow_html=True)
+else:
+    for message in st.session_state['message_history']:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
 
 # asking user for the input
 user_input =st.chat_input("Type here...")
 
 if user_input:
+
+    # updating when started chatting
+    st.session_state['chat_started'] = True
 
     # checking if this message is the first one in this thread to display in sidebar
     if len(st.session_state['message_history']) == 0:
