@@ -3,11 +3,17 @@ from typing import TypedDict, Annotated
 from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.sqlite import SqliteSaver
+from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph.message import add_messages
 from dotenv import load_dotenv
 import sqlite3
+from langgraph.checkpoint.postgres import PostgresSaver
+import psycopg
+import os
 
 load_dotenv()
+
+DB_URI = os.environ.get("DATABASE_URL")
 
 llm = ChatOpenAI(model="gpt-4o-mini")
 
@@ -22,9 +28,13 @@ def chat_node(state: ChatState):
 
 
 #create a database
-conn = sqlite3.connect(database='chatbot.db', check_same_thread=False)
+# conn = sqlite3.connect(database='chatbot.db', check_same_thread=False)
+connection_kwargs = {"autocommit": True, "prepare_threshold": 0}
+conn = psycopg.connect(DB_URI, **connection_kwargs)
 # Checkpointer
-checkpointer = SqliteSaver(conn=conn)
+# checkpointer = SqliteSaver(conn=conn)
+checkpointer = PostgresSaver(conn)
+checkpointer.setup()  # creates tables on first run
 
 graph = StateGraph(ChatState)
 graph.add_node("chat_node", chat_node)
@@ -55,6 +65,8 @@ def retrieve_all_threads():
     return all_threads
 
 def delete_thread(thread_id):
-    conn.execute("DELETE FROM checkpoints WHERE thread_id = ?", (str(thread_id),))
-    conn.execute("DELETE FROM writes WHERE thread_id = ?", (str(thread_id),))
+    conn.execute("DELETE FROM checkpoints WHERE thread_id = %s", (str(thread_id),))
+    conn.execute("DELETE FROM checkpoint_writes WHERE thread_id = %s", (str(thread_id),))
+    conn.execute("DELETE FROM checkpoint_blobs WHERE thread_id = %s", (str(thread_id),))
     conn.commit()
+
