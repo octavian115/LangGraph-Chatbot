@@ -57,8 +57,4 @@ cp .env.example .env
 streamlit run app.py
 ```
 
-## Roadmap
 
-- [ ] Replace `MemorySaver` with PostgreSQL checkpointer for true persistence across restarts
-- [ ] Deploy on Render with managed Postgres
-- [ ] Add system prompt customization per session
