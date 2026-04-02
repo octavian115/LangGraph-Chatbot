@@ -1,7 +1,8 @@
 import streamlit as st
-from langgraph_database_backend import chatbot, retrieve_all_threads, delete_thread
+from langgraph_tool_backend import chatbot, retrieve_all_threads, delete_thread
 from langchain_core.messages import HumanMessage
 import uuid
+import re
 
 st.markdown("""
     <style>
@@ -169,13 +170,28 @@ if user_input:
         }
 
         try:
-            ai_message = st.write_stream(
-                message_chunk.content for message_chunk, metadata in chatbot.stream(
-                    {'messages': [HumanMessage(content=user_input)]},
-                    config= CONFIG,
+            def ai_only_stream(query):
+                for message_chunk, metadata in chatbot.stream(
+                    {"messages": [HumanMessage(content=query)]},
+                    config=CONFIG,
                     stream_mode="messages"
-                )
-            )
+                ):
+                    if metadata.get("langgraph_node") == "chat_node": # filtering for chat node
+                        content = message_chunk.content
+                        # Gemini returns a list of content blocks
+                        if isinstance(content, list):
+                            for block in content:
+                                if isinstance(block, dict) and block.get("type") == "text":
+                                    text = block.get("text", "")
+                                    if text: # this is filtering for intermediate calls
+                                         # to address gemini streaming artifact(backtics)
+                                         yield re.sub(r'(?<!`)`(?!`)', '', text)
+
+                        # OpenAI returns a plain string
+                        elif isinstance(content, str) and content:
+                            yield content
+
+            ai_message = st.write_stream(ai_only_stream(user_input))
         except Exception as e:
             ai_message = "Sorry, I encountered an error. Please try again."
             st.error(f"Error: {e}")

@@ -1,0 +1,187 @@
+from langgraph.graph import StateGraph, START, END
+from typing import TypedDict, Annotated
+from langchain_core.messages import BaseMessage, HumanMessage
+from langchain_openai import ChatOpenAI
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langgraph.checkpoint.sqlite import SqliteSaver
+from langgraph.checkpoint.postgres import PostgresSaver
+from langgraph.graph.message import add_messages
+from dotenv import load_dotenv
+import sqlite3
+from langgraph.checkpoint.postgres import PostgresSaver
+import psycopg
+import os
+import requests
+
+# for tools
+from langgraph.prebuilt import ToolNode, tools_condition
+from langchain_core.tools import tool
+import yfinance as yf
+from tavily import TavilyClient
+
+load_dotenv()
+
+DB_URI = os.environ.get("DATABASE_URL")
+
+# ------------------------------------ LLM ----------------------------------------
+
+llm = ChatOpenAI(model="gpt-4o")
+# llm = ChatGoogleGenerativeAI(model = "gemini-2.5-flash")
+
+# ------------------------------------ TOOLS ---------------------------------------
+
+# Tool 1
+@tool
+def calculator(first_num: float, second_num: float,  operation: str) -> dict:
+    """
+    Perform a basic airthmetic operation on two numbers.
+    Operation must be one of : 'add', 'sub', 'mul', 'div'
+    """
+    try:
+        if operation == "add":
+            result = first_num + second_num
+        elif operation == "sub":
+            result = first_num - second_num
+        elif operation == "mul":
+            result = first_num * second_num
+        elif operation == "div":
+            if second_num == 0:
+                return {"error": "Division by zero not allowed"}
+            result = first_num / second_num
+        else:
+            return {"error": f"Unsupported operation {operation}"}
+        
+        return {"first_num": first_num, "second_num": second_num, "operation": operation,"result": result}
+    except Exception as e:
+        return {"error": str(e)}
+    
+# Tool 2
+@tool
+def search(query: str) -> dict:
+    """
+    Search the web for current information.
+    Use this for recent events, news, or anything that requires up-to-date knowledge.
+    """
+    try:
+        client = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
+        response = client.search(query, max_results=3)
+        return {
+            "query": query,
+            "results": [
+                {"title": r["title"], "url": r["url"], "content": r["content"]}
+                for r in response["results"]
+            ]
+        }
+    except Exception as e:
+        return {"error": str(e)}
+    
+# Tool 3
+@tool
+def get_stock_info(ticker: str) -> dict:
+    """
+    Get current stock information for a given ticker symbol.
+    Use this when the user asks about a stock price or company financials.
+    
+
+    For US stocks, use the ticker directly. Examples: 'AAPL', 'TSLA', 'GOOGL'
+    For Indian stocks listed on NSE, append '.NS'. Examples: 'ZOMATO.NS', 'RELIANCE.NS', 'INFY.NS', 'TCS.NS'
+    For Indian stocks listed on BSE, append '.BO'. Examples: 'RELIANCE.BO'
+    When in doubt for Indian stocks, prefer the .NS suffix.
+    """
+    try:
+        stock = yf.Ticker(ticker)
+        info = stock.info
+        return {
+            "ticker": ticker.upper(),
+            "name": info.get("longName"),
+            "price": info.get("currentPrice"),
+            "currency": info.get("currency"),
+            "market_cap": info.get("marketCap"),
+            "pe_ratio": info.get("trailingPE"),
+            "52_week_high": info.get("fiftyTwoWeekHigh"),
+            "52_week_low": info.get("fiftyTwoWeekLow"),
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+# make a tool list
+tools = [calculator,search,get_stock_info]
+
+# tool binding
+llm_with_tools = llm.bind_tools(tools)
+
+
+
+# ------------------------------------ STATE --------------------------------------- 
+
+class ChatState(TypedDict):
+    messages: Annotated[list[BaseMessage], add_messages]
+
+
+# ------------------------------------ NODES --------------------------------------- 
+
+def chat_node(state: ChatState):
+    """
+    LLM node that may answer or request a tool call.
+    """
+    messages = state['messages']
+    response = llm_with_tools.invoke(messages)
+
+    return {"messages": [response]}
+
+tool_node = ToolNode(tools)
+
+
+# ------------------------------------ CHECKPOINTER --------------------------------------- 
+
+#create a database
+# conn = sqlite3.connect(database='chatbot.db', check_same_thread=False)
+
+connection_kwargs = {"autocommit": True, "prepare_threshold": 0}
+conn = psycopg.connect(DB_URI, **connection_kwargs)
+
+# Checkpointer
+# checkpointer = SqliteSaver(conn=conn)
+
+checkpointer = PostgresSaver(conn)
+checkpointer.setup()  # creates tables on first run
+
+
+# ------------------------------------ GRAPH ------------------------------------------- 
+
+graph = StateGraph(ChatState)
+graph.add_node("chat_node", chat_node)
+graph.add_node("tools", tool_node)
+
+graph.add_edge(START, "chat_node")
+graph.add_conditional_edges("chat_node", tools_condition)
+graph.add_edge('tools', 'chat_node')
+
+chatbot = graph.compile(checkpointer=checkpointer)
+
+
+
+# ------------------------------------ UTILITY FUNCTIONS ------------------------------------------- 
+
+def load_conversation(thread_id):
+    state = chatbot.get_state(config={'configurable': {'thread_id': thread_id}})
+
+    # to avoid a key error if the thread is empty
+    return state.values.get('messages',[])
+
+def retrieve_all_threads():
+    all_threads = {}
+    for checkpoint in checkpointer.list(None):
+        thread_id = checkpoint.config["configurable"]['thread_id']
+        if thread_id not in all_threads:
+            messages = checkpoint.checkpoint.get("channel_values", {}).get("messages", [])
+            first_human = next((m for m in messages if isinstance(m, HumanMessage)), None)
+            label = first_human.content[:30] if first_human else str(thread_id)[:8]
+            all_threads[thread_id] = label
+
+    return all_threads
+
+def delete_thread(thread_id):
+    conn.execute("DELETE FROM checkpoints WHERE thread_id = %s", (str(thread_id),))
+    conn.execute("DELETE FROM checkpoint_writes WHERE thread_id = %s", (str(thread_id),))
+    conn.execute("DELETE FROM checkpoint_blobs WHERE thread_id = %s", (str(thread_id),))
