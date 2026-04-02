@@ -67,7 +67,13 @@ if 'chat_started' not in st.session_state:
 
 # ********************************* Sidebar UI **************************************
 
-st.sidebar.title("LangGraph Chatbot")
+st.sidebar.markdown("""
+    <p style="font-family: Georgia, serif; font-size: 22px; 
+              font-weight: 300; letter-spacing: 0.06em; 
+              color: white; margin: 0 0 16px;">
+        Narad
+    </p>
+""", unsafe_allow_html=True)
 
 if st.sidebar.button("New Chat"):
     reset_chat()
@@ -100,7 +106,7 @@ for thread_id, label in reversed(st.session_state['chat_threads'].items()):
         delete_thread(thread_id) # remove from DB
 
         del st.session_state['chat_threads'][thread_id] # remove from UI
-        
+
         if st.session_state['thread_id'] == thread_id:
             # where user deletes the current thread
             reset_chat()
@@ -112,25 +118,26 @@ for thread_id, label in reversed(st.session_state['chat_threads'].items()):
 # welcome screen when no messages and when users starts the chat
 if not st.session_state['chat_started'] and len(st.session_state['message_history']) == 0:
 
-    st.markdown("""
-            <div style="display: flex; flex-direction: column; align-items: center; 
-                    justify-content: center; padding: 80px 20px 40px;">
-            <h1 style="font-size: 26px; font-weight: 500; margin-bottom: 8px;">
-                LangGraph Chatbot
-            </h1>
-            <p style="color: gray; font-size: 15px;">
-                Your conversations are saved and can be resumed anytime.
-            </p>
-        </div>
-    """, unsafe_allow_html=True)
+    _, col, _ = st.columns([1, 2, 1])
+    with col:
+        st.markdown("""
+            <div style="padding: 80px 0 40px;">
+                <h1 style="font-family: Georgia, serif; font-size: 56px; font-weight: 300; letter-spacing: 0.08em; margin: 0 0 12px; padding: 0; color: white;">
+                    Narad
+                </h1>
+                <p style="font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; color: gray; margin: 0;">
+                    Where ideas take shape
+                </p>
+            </div>
+        """, unsafe_allow_html=True)
 else:
     for message in st.session_state['message_history']:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
-
+            
 
 # asking user for the input
-user_input =st.chat_input("Type here...")
+user_input =st.chat_input("What's on your mind today?")
 
 if user_input:
 
