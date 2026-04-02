@@ -1,6 +1,6 @@
 from langgraph.graph import StateGraph, START, END
 from typing import TypedDict, Annotated
-from langchain_core.messages import BaseMessage, HumanMessage
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.checkpoint.sqlite import SqliteSaver
@@ -12,6 +12,7 @@ from langgraph.checkpoint.postgres import PostgresSaver
 import psycopg
 import os
 import requests
+from datetime import datetime
 
 # for tools
 from langgraph.prebuilt import ToolNode, tools_condition
@@ -121,11 +122,18 @@ class ChatState(TypedDict):
 
 # ------------------------------------ NODES --------------------------------------- 
 
+
 def chat_node(state: ChatState):
-    """
-    LLM node that may answer or request a tool call.
-    """
-    messages = state['messages']
+    system_prompt = SystemMessage(content=f"""You are Narad, a helpful AI assistant.
+    Today's date is {datetime.now().strftime("%B %d, %Y")}.
+    You have access to the following tools:
+    - search: use for current events, news, or anything time-sensitive
+    - get_stock_info: use for stock prices and company financials
+    - calculator: use for arithmetic operations
+
+    Always use the search tool for recent events or news. Never answer time-sensitive questions from memory.
+    """)
+    messages = [system_prompt] + state['messages']
     response = llm_with_tools.invoke(messages)
 
     return {"messages": [response]}

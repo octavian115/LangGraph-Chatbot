@@ -1,6 +1,6 @@
 import streamlit as st
 from langgraph_tool_backend import chatbot, retrieve_all_threads, delete_thread
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 import uuid
 import re
 
@@ -161,8 +161,6 @@ if user_input:
     with st.chat_message("assistant"):
 
         # defining config for the chatbot
-        # CONFIG = {'configurable': {'thread_id': st.session_state['thread_id'] }
-        # new config to categorize traces in langsmith 
         CONFIG = {
             "configurable": {'thread_id': st.session_state['thread_id']},
             "metadata": {
@@ -172,12 +170,28 @@ if user_input:
         }
 
         try:
+            status_holder = {"box": None}
+
             def ai_only_stream(query):
                 for message_chunk, metadata in chatbot.stream(
                     {"messages": [HumanMessage(content=query)]},
                     config=CONFIG,
                     stream_mode="messages"
                 ):
+                    # tool status indicator
+                    if isinstance(message_chunk, ToolMessage):
+                        tool_name = getattr(message_chunk, "name", "tool")
+                        if status_holder["box"] is None:
+                            status_holder["box"] = st.status(
+                                f"🔧 Using `{tool_name}`…", expanded=True
+                            )
+                        else:
+                            status_holder["box"].update(
+                                label=f"🔧 Using `{tool_name}`…",
+                                state="running",
+                                expanded=True,
+                            )
+
                     if metadata.get("langgraph_node") == "chat_node": # filtering for chat node
                         content = message_chunk.content
                         # Gemini returns a list of content blocks
@@ -194,6 +208,12 @@ if user_input:
                             yield content
 
             ai_message = st.write_stream(ai_only_stream(user_input))
+
+            if status_holder["box"] is not None:
+                status_holder["box"].update(
+                    label="✅ Done", state="complete", expanded=False
+                )
+
         except Exception as e:
             ai_message = "Sorry, I encountered an error. Please try again."
             st.error(f"Error: {e}")
