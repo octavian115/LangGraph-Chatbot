@@ -33,28 +33,20 @@ llm = ChatOpenAI(model="gpt-4o")
 
 # Tool 1
 @tool
-def calculator(first_num: float, second_num: float,  operation: str) -> dict:
+def calculator(expression: str) -> dict:
     """
-    Perform a basic airthmetic operation on two numbers.
-    Operation must be one of : 'add', 'sub', 'mul', 'div'
+    Evaluate a mathematical expression.
+    Supports: +, -, *, /, **, %, parentheses.
+    Examples: '3 + 4 * 2', '(10 / 2) + 5', '2 ** 8'
     """
     try:
-        if operation == "add":
-            result = first_num + second_num
-        elif operation == "sub":
-            result = first_num - second_num
-        elif operation == "mul":
-            result = first_num * second_num
-        elif operation == "div":
-            if second_num == 0:
-                return {"error": "Division by zero not allowed"}
-            result = first_num / second_num
-        else:
-            return {"error": f"Unsupported operation {operation}"}
-        
-        return {"first_num": first_num, "second_num": second_num, "operation": operation,"result": result}
+        allowed_names = {"abs": abs, "round": round, "min": min, "max": max}
+        result = eval(expression, {"__builtins__": {}}, allowed_names)
+        return {"expression": expression, "result": result}
+    except ZeroDivisionError:
+        return {"error": "Division by zero"}
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": f"Invalid expression: {str(e)}"}
     
 # Tool 2
 @tool

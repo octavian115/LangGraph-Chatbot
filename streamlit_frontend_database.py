@@ -205,7 +205,7 @@ if user_input:
 
                         # OpenAI returns a plain string
                         elif isinstance(content, str) and content:
-                            yield content
+                            yield re.sub(r'(?<!`)`(?!`)', '', content)
 
             ai_message = st.write_stream(ai_only_stream(user_input))
 

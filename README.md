@@ -12,7 +12,7 @@ In addition to that tools like search have been integrated with the chatbot that
 
 ## Live Demo
 
-[Try Narad](https://your-render-url.onrender.com)
+[Try Narad](https://narad-chat.onrender.com)
 
 ## Tech Stack
 
@@ -40,7 +40,7 @@ In addition to that tools like search have been integrated with the chatbot that
 ```
 User Input
     ↓
-chat_node (Gemini 2.5 Flash)
+chat_node (ChatGPT-4o)
     ↓
 tools_condition
     ├── tool call? → ToolNode → back to chat_node
@@ -50,7 +50,7 @@ tools_condition
 ## Project Structure
 ```
 narad/
-├── app.py                          # Streamlit UI
+├── streamlit_frontend_database.py                          # Streamlit UI
 ├── langgraph_tool_backend.py       # LangGraph graph + tools + PostgreSQL checkpointer
 ├── .env                            # API keys
 └── pyproject.toml
@@ -94,7 +94,4 @@ streamlit run app.py
 - [x] PostgreSQL persistence for cloud deployment
 - [x] Deploy on Render with managed Postgres
 - [x] Tool-augmented responses (calculator, search, stock info)
-- [ ] Upgrade calculator to expression-based eval
-- [ ] Add system prompt / persona configuration
-- [ ] Multi-agent architecture
 
