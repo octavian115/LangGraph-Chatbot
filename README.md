@@ -32,7 +32,7 @@ In addition to that tools like search have been integrated with the chatbot that
 - Sidebar navigation with auto-labeled chat threads
 - LangSmith tracing organized by thread ID
 - **Tool-augmented responses:**
-  - `calculator` — arithmetic operations
+  - `calculator` —  solves arithmetic expressions
   - `search` — real-time web search via Tavily
   - `get_stock_info` — stock prices and financials via yfinance (US and Indian markets)
 
