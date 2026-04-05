@@ -2,7 +2,6 @@ from langgraph.graph import StateGraph, START, END
 from typing import TypedDict, Annotated
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.checkpoint.postgres import PostgresSaver
 from langgraph.graph.message import add_messages
@@ -13,6 +12,11 @@ import psycopg
 import os
 import requests
 from datetime import datetime
+import tempfile
+from langchain_community.document_loaders import PyPDFLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_community.vectorstores import FAISS
+from langchain_openai import OpenAIEmbeddings
 
 # for tools
 from langgraph.prebuilt import ToolNode, tools_condition
@@ -28,6 +32,41 @@ DB_URI = os.environ.get("DATABASE_URL")
 
 llm = ChatOpenAI(model="gpt-4o")
 # llm = ChatGoogleGenerativeAI(model = "gemini-2.5-flash")
+
+# ---------------------------------- RAG SETUP --------------------------------------
+
+embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+
+# per-thread retriever store
+_THREAD_RETRIEVERS = {}
+_THREAD_METADATA = {}
+
+def ingest_pdf(file_bytes: bytes, thread_id: str, filename: str = None) -> dict:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+        tmp.write(file_bytes)
+        tmp_path = tmp.name
+
+    try:
+        docs = PyPDFLoader(tmp_path).load()
+        chunks = RecursiveCharacterTextSplitter(
+            chunk_size=1000, chunk_overlap=200
+        ).split_documents(docs)
+
+        vector_store = FAISS.from_documents(chunks, embeddings)
+        retriever = vector_store.as_retriever(
+            search_type="similarity", search_kwargs={"k": 4}
+        )
+
+        _THREAD_RETRIEVERS[str(thread_id)] = retriever
+        _THREAD_METADATA[str(thread_id)] = {
+            "filename": filename,
+            "pages": len(docs),
+            "chunks": len(chunks),
+        }
+
+        return _THREAD_METADATA[str(thread_id)]
+    finally:
+        os.remove(tmp_path)
 
 # ------------------------------------ TOOLS ---------------------------------------
 
@@ -97,12 +136,38 @@ def get_stock_info(ticker: str) -> dict:
         }
     except Exception as e:
         return {"error": str(e)}
+    
+# Tool 4 - RAG (dynamic, per-thread)
+def make_rag_tool(thread_id: str):
+    retriever = _THREAD_RETRIEVERS.get(str(thread_id))
 
-# make a tool list
-tools = [calculator,search,get_stock_info]
+    @tool
+    def rag_tool(query: str) -> dict:
+        """
+        Retrieve relevant information from the uploaded PDF document.
+        Use this when the user asks questions about their uploaded document.
+        """
+        if retriever is None:
+            return {"error": "No PDF uploaded for this session. Please upload a PDF first."}
 
-# tool binding
-llm_with_tools = llm.bind_tools(tools)
+        results = retriever.invoke(query)
+        context = [doc.page_content for doc in results]
+        metadata = [doc.metadata for doc in results]
+
+        return {
+            "query": query,
+            "context": context,
+            "metadata": metadata,
+            "source": _THREAD_METADATA.get(str(thread_id), {}).get("filename"),
+        }
+
+    return rag_tool
+
+# # make a tool list
+# tools = [calculator,search,get_stock_info]
+
+# # tool binding
+# llm_with_tools = llm.bind_tools(tools)
 
 
 
@@ -114,26 +179,45 @@ class ChatState(TypedDict):
 
 # ------------------------------------ NODES --------------------------------------- 
 
+# base tools (always available)
+base_tools = [calculator, search, get_stock_info]
 
-def chat_node(state: ChatState):
+def get_tools_for_thread(thread_id: str):
+    tools = base_tools.copy()
+    if str(thread_id) in _THREAD_RETRIEVERS:
+        tools.append(make_rag_tool(thread_id))
+    return tools
+
+
+def chat_node(state: ChatState, config):
+    thread_id = config["configurable"]["thread_id"]
+    tools = get_tools_for_thread(thread_id)
+
     system_prompt = SystemMessage(content=f"""You are Narad, a helpful AI assistant.
     Today's date is {datetime.now().strftime("%B %d, %Y")}.
     You have access to the following tools:
     - search: use for current events, news, or anything time-sensitive
     - get_stock_info: use for stock prices and company financials
     - calculator: use for arithmetic operations
+    {"- rag_tool: use for answering questions about the uploaded PDF document. If the document doesn't contain the answer, fall back to other tools like search." if len(tools) > 3 else ""}
 
     Always use the search tool for recent events or news. Never answer time-sensitive questions from memory.
+    If the user asks about their uploaded document, always use the rag_tool first.
+    If the rag_tool returns no relevant information, DO NOT give up — use the search tool to find the answer from the web instead.
     """)
+
     messages = [system_prompt] + state['messages']
-    response = llm_with_tools.invoke(messages)
+    response = llm.bind_tools(tools).invoke(messages)
 
     return {"messages": [response]}
 
-tool_node = ToolNode(tools)
+def tool_node(state: ChatState, config):
+    thread_id = config["configurable"]["thread_id"]
+    tools = get_tools_for_thread(thread_id)
+    return ToolNode(tools).invoke(state)
 
 
-# ------------------------------------ CHECKPOINTER --------------------------------------- 
+# ------------------------------------ CHECKPOINTER -------------------------------------
 
 #create a database
 # conn = sqlite3.connect(database='chatbot.db', check_same_thread=False)

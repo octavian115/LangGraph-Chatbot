@@ -66,6 +66,9 @@ add_thread(st.session_state['thread_id'])
 if 'chat_started' not in st.session_state:
     st.session_state['chat_started'] = False
 
+if "thread_files" not in st.session_state:
+    st.session_state["thread_files"] = {}
+
 # ********************************* Sidebar UI **************************************
 
 st.sidebar.markdown("""
@@ -116,6 +119,33 @@ for thread_id, label in reversed(st.session_state['chat_threads'].items()):
         else:
             st.rerun()
 
+# ********************************* PDF Upload **************************************
+
+uploaded_pdf = st.sidebar.file_uploader(
+    "Upload a PDF",
+    type=["pdf"],
+    key=f"pdf_uploader_{st.session_state['thread_id']}"
+)
+
+current_thread = str(st.session_state['thread_id'])
+
+# show indicator if this thread has an indexed PDF
+if current_thread in st.session_state.get("thread_files", {}):
+    st.sidebar.info(f"📄 {st.session_state['thread_files'][current_thread]}")
+
+if uploaded_pdf:
+    current_thread = str(st.session_state['thread_id'])
+    if st.session_state["thread_files"].get(current_thread) != uploaded_pdf.name:
+        with st.spinner(f"Indexing {uploaded_pdf.name}..."):
+            from langgraph_tool_backend import ingest_pdf
+            result = ingest_pdf(
+                file_bytes=uploaded_pdf.read(),
+                thread_id=current_thread,
+                filename=uploaded_pdf.name,
+            )
+        st.session_state["thread_files"][current_thread] = uploaded_pdf.name
+        st.sidebar.success(f"Indexed: {result['pages']} pages, {result['chunks']} chunks")
+
 # ************************************ Main UI **************************************
 
 # welcome screen when no messages and when users starts the chat
@@ -157,10 +187,11 @@ if user_input:
     with st.chat_message("user"):
         st.markdown(user_input)
 
-    # generating llm response
+    
+    status_placeholder = st.empty()
+
     with st.chat_message("assistant"):
 
-        # defining config for the chatbot
         CONFIG = {
             "configurable": {'thread_id': st.session_state['thread_id']},
             "metadata": {
@@ -178,32 +209,28 @@ if user_input:
                     config=CONFIG,
                     stream_mode="messages"
                 ):
-                    # tool status indicator
                     if isinstance(message_chunk, ToolMessage):
                         tool_name = getattr(message_chunk, "name", "tool")
-                        if status_holder["box"] is None:
-                            status_holder["box"] = st.status(
-                                f"🔧 Using `{tool_name}`…", expanded=True
-                            )
-                        else:
-                            status_holder["box"].update(
-                                label=f"🔧 Using `{tool_name}`…",
-                                state="running",
-                                expanded=True,
-                            )
+                        with status_placeholder:
+                            if status_holder["box"] is None:
+                                status_holder["box"] = st.status(
+                                    f"🔧 Using `{tool_name}`…", expanded=True
+                                )
+                            else:
+                                status_holder["box"].update(
+                                    label=f"🔧 Using `{tool_name}`…",
+                                    state="running",
+                                    expanded=True,
+                                )
 
-                    if metadata.get("langgraph_node") == "chat_node": # filtering for chat node
+                    if metadata.get("langgraph_node") == "chat_node":
                         content = message_chunk.content
-                        # Gemini returns a list of content blocks
                         if isinstance(content, list):
                             for block in content:
                                 if isinstance(block, dict) and block.get("type") == "text":
                                     text = block.get("text", "")
-                                    if text: # this is filtering for intermediate calls
-                                         # to address gemini streaming artifact(backtics)
-                                         yield re.sub(r'(?<!`)`(?!`)', '', text)
-
-                        # OpenAI returns a plain string
+                                    if text:
+                                        yield re.sub(r'(?<!`)`(?!`)', '', text)
                         elif isinstance(content, str) and content:
                             yield re.sub(r'(?<!`)`(?!`)', '', content)
 
@@ -219,4 +246,3 @@ if user_input:
             st.error(f"Error: {e}")
 
     st.session_state['message_history'].append({"role":"assistant", "content": ai_message})
-    
