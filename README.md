@@ -109,5 +109,4 @@ streamlit run streamlit_frontend_database.py
 - [x] Deploy on Render with managed Postgres
 - [x] Tool-augmented responses (calculator, search, stock info)
 - [x] Agentic RAG — PDF upload with per-session FAISS retrieval
-- [ ] Conditional routing and error handling
-- [ ] Human-in-the-loop (HITL) via LangGraph's `interrupt()`
+- [ ] Human-in-the-loop (HITL) 
