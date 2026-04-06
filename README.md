@@ -65,7 +65,7 @@ rag_tool (closure-bound per thread) → retriever.invoke(query) → context retu
 ## Project Structure
 ```
 narad/
-├── streamlit_frontend_database.py  # Streamlit UI with PDF upload and streaming
+├── app.py  # Streamlit UI with PDF upload and streaming
 ├── langgraph_tool_backend.py       # LangGraph graph + tools + RAG + PostgreSQL checkpointer
 ├── .env                            # API keys
 └── pyproject.toml

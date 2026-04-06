@@ -135,6 +135,7 @@ if current_thread in st.session_state.get("thread_files", {}):
 
 if uploaded_pdf:
     current_thread = str(st.session_state['thread_id'])
+    # only ingest if this is a new file
     if st.session_state["thread_files"].get(current_thread) != uploaded_pdf.name:
         with st.spinner(f"Indexing {uploaded_pdf.name}..."):
             from langgraph_tool_backend import ingest_pdf

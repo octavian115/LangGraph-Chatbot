@@ -246,7 +246,7 @@ chatbot = graph.compile(checkpointer=checkpointer)
 
 
 
-# ------------------------------------ UTILITY FUNCTIONS ------------------------------------------- 
+# ------------------------------------ UTILITY FUNCTIONS ---------------------------------
 
 def load_conversation(thread_id):
     state = chatbot.get_state(config={'configurable': {'thread_id': thread_id}})
