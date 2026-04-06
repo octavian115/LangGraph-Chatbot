@@ -97,7 +97,7 @@ cp .env.example .env
 
 **4. Run the app**
 ```bash
-streamlit run streamlit_frontend_database.py
+streamlit run app.py
 ```
 
 ## Roadmap
