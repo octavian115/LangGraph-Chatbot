@@ -54,7 +54,8 @@ if 'thread_id' not in st.session_state:
 # to retrieve the chat from database on app restart
 try:
     if 'chat_threads' not in st.session_state:
-        st.session_state['chat_threads'] = retrieve_all_threads()
+        with st.spinner("Waking up the database... (free tier cold start, takes a few seconds)"):
+            st.session_state['chat_threads'] = retrieve_all_threads()
 except Exception as e:
     st.error(f"Error: {e}")
     st.stop()
@@ -68,6 +69,9 @@ if 'chat_started' not in st.session_state:
 
 if "thread_files" not in st.session_state:
     st.session_state["thread_files"] = {}
+
+if 'pending_prompt' not in st.session_state:
+    st.session_state['pending_prompt'] = None
 
 # ********************************* Sidebar UI **************************************
 
@@ -149,6 +153,12 @@ if uploaded_pdf:
 
 # ************************************ Main UI **************************************
 
+user_input = None
+if st.session_state.get('pending_prompt'):
+    user_input = st.session_state['pending_prompt']
+    st.session_state['pending_prompt'] = None
+    st.session_state['chat_started'] = True
+
 # welcome screen when no messages and when users starts the chat
 if not st.session_state['chat_started'] and len(st.session_state['message_history']) == 0:
 
@@ -159,19 +169,35 @@ if not st.session_state['chat_started'] and len(st.session_state['message_histor
                 <h1 style="font-family: Georgia, serif; font-size: 56px; font-weight: 300; letter-spacing: 0.08em; margin: 0 0 12px; padding: 0; color: white;">
                     Narad
                 </h1>
-                <p style="font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; color: gray; margin: 0;">
-                    Where ideas take shape
+                <p style="font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; color: gray; margin: 0 0 32px;">
+                    Web search · Stocks · Math · PDF Q&A
                 </p>
             </div>
         """, unsafe_allow_html=True)
+
+        # example prompt chips
+        examples = [
+            ("📈", "What's Zomato trading at?"),
+            ("🔍", "Latest news on AI agents"),
+            ("🧮", "Calculate 15% tip on ₹2,847"),
+            ("📄", "Upload a PDF in the sidebar to ask questions"),
+        ]
+        c1, c2 = st.columns(2)
+        for i, (emoji, prompt) in enumerate(examples):
+            target = c1 if i % 2 == 0 else c2
+            if target.button(f"{emoji}  {prompt}", key=f"example_{i}", use_container_width=True):
+                if not prompt.startswith("Upload"):  # last one is informational, not clickable
+                    st.session_state['pending_prompt'] = prompt
+                    st.rerun()
 else:
     for message in st.session_state['message_history']:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
             
 
-# asking user for the input
-user_input =st.chat_input("What's on your mind today?")
+# asking user for the input — fall through to chat_input only if no pending prompt
+if user_input is None:
+    user_input = st.chat_input("What's on your mind today?")
 
 if user_input:
 
@@ -203,15 +229,26 @@ if user_input:
 
         try:
             status_holder = {"box": None}
+            thinking_box = st.empty()
+            thinking_box.markdown("_Thinking..._")
+            first_chunk_received = {"flag": False}
+
 
             def ai_only_stream(query):
+                def dismiss_thinking():
+                    if not first_chunk_received["flag"]:
+                        thinking_box.empty()
+                        first_chunk_received["flag"] = True
+
                 for message_chunk, metadata in chatbot.stream(
                     {"messages": [HumanMessage(content=query)]},
                     config=CONFIG,
                     stream_mode="messages"
                 ):
                     if isinstance(message_chunk, ToolMessage):
+                        dismiss_thinking()
                         tool_name = getattr(message_chunk, "name", "tool")
+                        status_holder["last_tool"] = tool_name 
                         with status_placeholder:
                             if status_holder["box"] is None:
                                 status_holder["box"] = st.status(
@@ -231,15 +268,18 @@ if user_input:
                                 if isinstance(block, dict) and block.get("type") == "text":
                                     text = block.get("text", "")
                                     if text:
+                                        dismiss_thinking()
                                         yield re.sub(r'(?<!`)`(?!`)', '', text)
                         elif isinstance(content, str) and content:
+                            dismiss_thinking()
                             yield re.sub(r'(?<!`)`(?!`)', '', content)
 
             ai_message = st.write_stream(ai_only_stream(user_input))
 
             if status_holder["box"] is not None:
+                last_tool = status_holder.get("last_tool", "tool")
                 status_holder["box"].update(
-                    label="✅ Done", state="complete", expanded=False
+                    label=f"Used `{last_tool}`", state="complete", expanded=False
                 )
 
         except Exception as e:
