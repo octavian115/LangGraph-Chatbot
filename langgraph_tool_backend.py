@@ -24,6 +24,8 @@ from langchain_core.tools import tool
 import yfinance as yf
 from tavily import TavilyClient
 
+from psycopg_pool import ConnectionPool
+
 load_dotenv()
 
 DB_URI = os.environ.get("DATABASE_URL")
@@ -219,17 +221,17 @@ def tool_node(state: ChatState, config):
 
 # ------------------------------------ CHECKPOINTER -------------------------------------
 
-#create a database
-# conn = sqlite3.connect(database='chatbot.db', check_same_thread=False)
-
 connection_kwargs = {"autocommit": True, "prepare_threshold": 0}
-conn = psycopg.connect(DB_URI, **connection_kwargs)
 
-# Checkpointer
-# checkpointer = SqliteSaver(conn=conn)
+pool = ConnectionPool(
+    conninfo=DB_URI,
+    max_size=5,
+    min_size=1,
+    kwargs=connection_kwargs,
+)
 
-checkpointer = PostgresSaver(conn)
-checkpointer.setup()  # creates tables on first run
+checkpointer = PostgresSaver(pool)
+checkpointer.setup()
 
 
 # ------------------------------------ GRAPH ------------------------------------------- 
@@ -267,6 +269,7 @@ def retrieve_all_threads():
     return all_threads
 
 def delete_thread(thread_id):
-    conn.execute("DELETE FROM checkpoints WHERE thread_id = %s", (str(thread_id),))
-    conn.execute("DELETE FROM checkpoint_writes WHERE thread_id = %s", (str(thread_id),))
-    conn.execute("DELETE FROM checkpoint_blobs WHERE thread_id = %s", (str(thread_id),))
+    with pool.connection() as conn:
+        conn.execute("DELETE FROM checkpoints WHERE thread_id = %s", (str(thread_id),))
+        conn.execute("DELETE FROM checkpoint_writes WHERE thread_id = %s", (str(thread_id),))
+        conn.execute("DELETE FROM checkpoint_blobs WHERE thread_id = %s", (str(thread_id),))
